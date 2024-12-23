@@ -211,3 +211,4 @@ initialize_db()
 
 # Запуск интерфейса
 window.mainloop()
+уфын
