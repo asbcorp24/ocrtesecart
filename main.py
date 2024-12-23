@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk, messagebox
 from PIL import Image, ImageTk
 import pytesseract
-import easyocr  # EasyOCR
+import easyocr
 import cv2
 import numpy as np
 import sqlite3
@@ -19,14 +19,15 @@ logging.basicConfig(
 )
 
 # Настройка Tesseract
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+pytesseract.pytesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# Инициализация EasyOCR
+# Настройка EasyOCR
 reader = easyocr.Reader(['en', 'ru'], gpu=False)
 
 
-# Инициализация базы данных
+# Работа с базой данных
 def initialize_db():
+    """Создает базу данных и таблицу, если они не существуют."""
     conn = sqlite3.connect("microchips.db")
     cursor = conn.cursor()
     cursor.execute("""
@@ -41,6 +42,7 @@ def initialize_db():
 
 
 def add_to_database(name, description):
+    """Добавляет запись в базу данных."""
     conn = sqlite3.connect("microchips.db")
     cursor = conn.cursor()
     cursor.execute("INSERT INTO microchips (name, description) VALUES (?, ?)", (name, description))
@@ -49,6 +51,43 @@ def add_to_database(name, description):
     log_action(f"Добавлена запись в базу данных: {name}")
 
 
+def export_to_csv():
+    """Экспортирует базу данных в файл CSV."""
+    try:
+        conn = sqlite3.connect("microchips.db")
+        df = pd.read_sql_query("SELECT * FROM microchips", conn)
+        conn.close()
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if file_path:
+            df.to_csv(file_path, index=False, encoding="utf-8")
+            log_action(f"База данных успешно экспортирована в файл: {file_path}")
+    except Exception as e:
+        log_error(f"Ошибка экспорта в CSV: {e}")
+
+
+def export_to_excel():
+    """Экспортирует базу данных в файл Excel."""
+    try:
+        conn = sqlite3.connect("microchips.db")
+        df = pd.read_sql_query("SELECT * FROM microchips", conn)
+        conn.close()
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
+        if file_path:
+            df.to_excel(file_path, index=False, engine="openpyxl")
+            log_action(f"База данных успешно экспортирована в файл: {file_path}")
+    except Exception as e:
+        log_error(f"Ошибка экспорта в Excel: {e}")
+
+
+# Предобработка изображения
 def preprocess_image(image_path):
     """Предобработка изображения для OCR."""
     try:
@@ -161,17 +200,10 @@ def start_processing():
 window = tk.Tk()
 window.title("OCR для микросхем")
 
-# Структура интерфейса
+# Верхняя часть
 frame_top = ttk.Frame(window, padding=10)
 frame_top.pack(fill=tk.X)
 
-frame_image = ttk.Frame(window, padding=10)
-frame_image.pack()
-
-frame_bottom = ttk.Frame(window, padding=10)
-frame_bottom.pack(fill=tk.BOTH, expand=True)
-
-# Верхняя часть: выбор файла
 file_path_label = ttk.Label(frame_top, text="Путь к файлу:")
 file_path_label.pack(side=tk.LEFT)
 
@@ -188,18 +220,30 @@ ocr_combobox.pack(side=tk.LEFT, padx=5)
 process_button = ttk.Button(frame_top, text="Обработать", command=start_processing)
 process_button.pack(side=tk.LEFT, padx=5)
 
-# Средняя часть: отображение изображения
+# Кнопки экспорта
+export_csv_button = ttk.Button(frame_top, text="Экспорт в CSV", command=export_to_csv)
+export_csv_button.pack(side=tk.LEFT, padx=5)
+
+export_excel_button = ttk.Button(frame_top, text="Экспорт в Excel", command=export_to_excel)
+export_excel_button.pack(side=tk.LEFT, padx=5)
+
+# Средняя часть
+frame_image = ttk.Frame(window, padding=10)
+frame_image.pack()
+
 image_label = ttk.Label(frame_image, text="Выбранное изображение", anchor=tk.CENTER)
 image_label.pack()
 
-# Нижняя часть: вывод результата
+# Нижняя часть
+frame_bottom = ttk.Frame(window, padding=10)
+frame_bottom.pack(fill=tk.BOTH, expand=True)
+
 output_label = ttk.Label(frame_bottom, text="Распознанный текст:")
 output_label.pack(anchor=tk.W)
 
 output_text = scrolledtext.ScrolledText(frame_bottom, wrap=tk.WORD, height=10)
 output_text.pack(fill=tk.BOTH, expand=True)
 
-# Лог
 log_label = ttk.Label(frame_bottom, text="Лог:")
 log_label.pack(anchor=tk.W)
 
@@ -211,4 +255,3 @@ initialize_db()
 
 # Запуск интерфейса
 window.mainloop()
-уфын

@@ -30,3 +30,15 @@
 2024-12-23 13:04:48,499 - INFO - Выбран файл: C:/Users/user/Downloads/WhatsApp Image 2024-12-23 at 12.16.58.jpeg
 2024-12-23 13:04:51,267 - INFO - Выбран метод OCR: EasyOCR
 2024-12-23 13:05:38,949 - INFO - Выбран метод OCR: EasyOCR
+2024-12-23 13:21:44,211 - WARNING - Using CPU. Note: This module is much faster with a GPU.
+2024-12-23 13:26:18,999 - WARNING - Using CPU. Note: This module is much faster with a GPU.
+2024-12-23 13:26:33,937 - INFO - Выбран файл: C:/Users/user/Downloads/WhatsApp Image 2024-12-23 at 12.14.11.jpeg
+2024-12-23 13:26:39,361 - INFO - Выбран метод OCR: EasyOCR
+2024-12-23 13:26:45,103 - ERROR - Ошибка обработки изображения: name 'fuzz' is not defined
+2024-12-23 13:28:47,838 - WARNING - Using CPU. Note: This module is much faster with a GPU.
+2024-12-23 13:29:01,437 - INFO - Выбран файл: C:/Users/user/Downloads/WhatsApp Image 2024-12-23 at 12.15.16.jpeg
+2024-12-23 13:29:03,385 - INFO - Выбран метод OCR: EasyOCR
+2024-12-23 13:29:21,640 - INFO - Выбран файл: C:/Users/user/Downloads/WhatsApp Image 2024-12-23 at 12.14.11.jpeg
+2024-12-23 13:29:22,635 - INFO - Выбран метод OCR: EasyOCR
+2024-12-23 13:29:44,702 - INFO - Выбран файл: C:/Users/user/Downloads/processed_microchip_image.jpg
+2024-12-23 13:29:46,512 - INFO - Выбран метод OCR: EasyOCR
