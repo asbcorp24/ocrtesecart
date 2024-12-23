@@ -1,20 +1,30 @@
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk, messagebox
-from PIL import Image
+from PIL import Image, ImageTk
 import pytesseract
 import cv2
 import numpy as np
 import sqlite3
-import difflib
+import pandas as pd
+from Levenshtein import ratio as levenshtein_ratio
+from rapidfuzz import fuzz
 import asyncio
 import time
+import logging
 
-# Настройте путь к Tesseract, если требуется
+# Настройка логирования
+logging.basicConfig(
+    filename="microchip_processor.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+# Настройка Tesseract
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
 
 # Инициализация базы данных
 def initialize_db():
-    """Создает базу данных и таблицу, если они не существуют."""
     conn = sqlite3.connect("microchips.db")
     cursor = conn.cursor()
     cursor.execute("""
@@ -27,8 +37,8 @@ def initialize_db():
     conn.commit()
     conn.close()
 
+
 def add_to_database(name, description):
-    """Добавляет запись в базу данных."""
     conn = sqlite3.connect("microchips.db")
     cursor = conn.cursor()
     cursor.execute("INSERT INTO microchips (name, description) VALUES (?, ?)", (name, description))
@@ -36,32 +46,8 @@ def add_to_database(name, description):
     conn.close()
     log_action(f"Добавлена запись в базу данных: {name}")
 
-def find_similar_text(input_text):
-    """Ищет наиболее похожий текст в базе данных."""
-    conn = sqlite3.connect("microchips.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT name, description FROM microchips")
-    rows = cursor.fetchall()
-    conn.close()
-
-    # Поиск наиболее похожего текста
-    best_match = None
-    highest_ratio = 0
-    for name, description in rows:
-        ratio = difflib.SequenceMatcher(None, input_text, description).ratio()
-        if ratio > highest_ratio:
-            highest_ratio = ratio
-            best_match = (name, description)
-
-    if best_match:
-        log_action(f"Найден наиболее похожий текст (похожесть: {highest_ratio:.2f}): {best_match[0]}")
-        return best_match[0], best_match[1], highest_ratio
-    else:
-        log_action("Совпадений не найдено.")
-        return None, None, 0
 
 def preprocess_image(image_path):
-    """Обрабатывает изображение для улучшения OCR."""
     try:
         image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         image = cv2.GaussianBlur(image, (5, 5), 0)
@@ -82,133 +68,139 @@ def preprocess_image(image_path):
         log_error(f"Ошибка обработки изображения: {e}")
         return None
 
+
 async def process_image_async():
-    """Асинхронная функция для обработки изображения."""
     start_time = time.time()
     file_path = file_path_entry.get()
-    selected_lang = lang_combobox.get()
 
     if not file_path:
         log_error("Выберите файл перед обработкой.")
         return
 
     try:
+        # Отображение изображения в интерфейсе
+        display_image(file_path)
+
         processed_image = preprocess_image(file_path)
         if processed_image is None:
             log_error("Не удалось обработать изображение.")
             return
 
         log_action("Начинаем OCR...")
-        text = pytesseract.image_to_string(processed_image, lang=selected_lang)
+        text = pytesseract.image_to_string(processed_image, lang="eng+rus")
         output_text.delete(1.0, tk.END)
         output_text.insert(tk.END, text)
-
-        # Найти наиболее похожий текст в базе данных
-        name, similar_text, similarity = find_similar_text(text)
-        if name:
-            result = f"Наиболее похожий текст:\nНазвание микросхемы: {name}\nОписание: {similar_text}\nПохожесть: {similarity:.2f}"
-        else:
-            result = "Совпадений в базе данных не найдено."
-        output_text.insert(tk.END, f"\n\n{result}")
 
         elapsed_time = time.time() - start_time
         log_action(f"Время обработки: {elapsed_time:.2f} секунд.")
     except Exception as e:
         log_error(f"Ошибка обработки изображения: {e}")
 
-def add_chip():
-    """Открывает окно для добавления новой записи в базу данных."""
-    def save_chip():
-        name = name_entry.get().strip()
-        description = description_text.get(1.0, tk.END).strip()
-        if name and description:
-            add_to_database(name, description)
-            add_chip_window.destroy()
-        else:
-            messagebox.showerror("Ошибка", "Название и описание не могут быть пустыми.")
 
-    add_chip_window = tk.Toplevel(window)
-    add_chip_window.title("Добавить микросхему")
+def display_image(image_path):
+    """Отображает изображение в интерфейсе."""
+    try:
+        image = Image.open(image_path)
+        image = image.resize((400, 300), Image.Resampling.LANCZOS)  # Используем Resampling.LANCZOS
+        img_tk = ImageTk.PhotoImage(image)
+        image_label.config(image=img_tk)
+        image_label.image = img_tk
+    except Exception as e:
+        log_error(f"Ошибка отображения изображения: {e}")
 
-    tk.Label(add_chip_window, text="Название микросхемы:").pack(pady=5)
-    name_entry = tk.Entry(add_chip_window, width=50)
-    name_entry.pack(pady=5)
+def export_to_csv():
+    try:
+        conn = sqlite3.connect("microchips.db")
+        df = pd.read_sql_query("SELECT * FROM microchips", conn)
+        conn.close()
 
-    tk.Label(add_chip_window, text="Описание:").pack(pady=5)
-    description_text = scrolledtext.ScrolledText(add_chip_window, wrap=tk.WORD, width=50, height=10)
-    description_text.pack(pady=5)
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if file_path:
+            df.to_csv(file_path, index=False, encoding="utf-8")
+            log_action(f"База данных успешно экспортирована в файл: {file_path}")
+    except Exception as e:
+        log_error(f"Ошибка экспорта в CSV: {e}")
 
-    tk.Button(add_chip_window, text="Сохранить", command=save_chip).pack(pady=10)
+
+def log_action(message):
+    logging.info(message)
+    log_text.insert(tk.END, f"[INFO] {time.strftime('%H:%M:%S')} - {message}\n")
+    log_text.see(tk.END)
+
+
+def log_error(message):
+    logging.error(message)
+    log_text.insert(tk.END, f"[ERROR] {time.strftime('%H:%M:%S')} - {message}\n")
+    log_text.see(tk.END)
+    messagebox.showerror("Ошибка", message)
+
 
 def select_file():
-    """Открывает диалог выбора файла и вставляет путь в поле ввода."""
     file_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.bmp")])
     if file_path:
         file_path_entry.delete(0, tk.END)
         file_path_entry.insert(0, file_path)
         log_action(f"Выбран файл: {file_path}")
 
-def log_action(message):
-    """Добавляет запись в лог."""
-    log_text.insert(tk.END, f"[INFO] {time.strftime('%H:%M:%S')} - {message}\n")
-    log_text.see(tk.END)
-
-def log_error(message):
-    """Добавляет запись об ошибке в лог."""
-    log_text.insert(tk.END, f"[ERROR] {time.strftime('%H:%M:%S')} - {message}\n")
-    log_text.see(tk.END)
-    messagebox.showerror("Ошибка", message)
 
 def start_processing():
-    """Обертка для запуска асинхронной обработки."""
     asyncio.run(process_image_async())
 
-# Создаем основное окно
+
+# Интерфейс
 window = tk.Tk()
-window.title("OCR с базой данных микросхем")
+window.title("OCR для микросхем")
 
-# Поле для выбора файла
-file_path_label = tk.Label(window, text="Путь к файлу:")
-file_path_label.pack(pady=5)
+# Создание стилей
+style = ttk.Style()
+style.configure("TButton", font=("Arial", 10))
+style.configure("TLabel", font=("Arial", 12))
 
-file_path_entry = tk.Entry(window, width=50)
-file_path_entry.pack(pady=5)
+frame_top = ttk.Frame(window, padding=10)
+frame_top.pack(fill=tk.X)
 
-select_button = tk.Button(window, text="Выбрать файл", command=select_file)
-select_button.pack(pady=5)
+frame_image = ttk.Frame(window, padding=10)
+frame_image.pack()
 
-# Выпадающий список для выбора языка
-lang_label = tk.Label(window, text="Язык распознавания:")
-lang_label.pack(pady=5)
+frame_bottom = ttk.Frame(window, padding=10)
+frame_bottom.pack(fill=tk.BOTH, expand=True)
 
-lang_combobox = ttk.Combobox(window, values=["rus", "eng", "rus+eng"], state="readonly")
-lang_combobox.set("rus+eng")
-lang_combobox.pack(pady=5)
+# Верхняя часть: выбор файла
+file_path_label = ttk.Label(frame_top, text="Путь к файлу:")
+file_path_label.pack(side=tk.LEFT)
 
-# Кнопка для обработки изображения
-process_button = tk.Button(window, text="Обработать изображение", command=start_processing)
-process_button.pack(pady=10)
+file_path_entry = ttk.Entry(frame_top, width=50)
+file_path_entry.pack(side=tk.LEFT, padx=5)
 
-# Кнопка для добавления микросхемы
-add_chip_button = tk.Button(window, text="Добавить микросхему", command=add_chip)
-add_chip_button.pack(pady=5)
+select_button = ttk.Button(frame_top, text="Выбрать файл", command=select_file)
+select_button.pack(side=tk.LEFT)
 
-# Поле для вывода результата
-output_label = tk.Label(window, text="Распознанный текст:")
-output_label.pack(pady=5)
+process_button = ttk.Button(frame_top, text="Обработать", command=start_processing)
+process_button.pack(side=tk.LEFT, padx=5)
 
-output_text = scrolledtext.ScrolledText(window, wrap=tk.WORD, width=60, height=15)
-output_text.pack(pady=10)
+# Средняя часть: отображение изображения
+image_label = ttk.Label(frame_image, text="Выбранное изображение", anchor=tk.CENTER)
+image_label.pack()
 
-# Поле для логирования
-log_label = tk.Label(window, text="Лог действий:")
-log_label.pack(pady=5)
+# Нижняя часть: вывод результата
+output_label = ttk.Label(frame_bottom, text="Распознанный текст:")
+output_label.pack(anchor=tk.W)
 
-log_text = scrolledtext.ScrolledText(window, wrap=tk.WORD, width=60, height=10, state="normal")
-log_text.pack(pady=10)
+output_text = scrolledtext.ScrolledText(frame_bottom, wrap=tk.WORD, height=10)
+output_text.pack(fill=tk.BOTH, expand=True)
+
+# Лог
+log_label = ttk.Label(frame_bottom, text="Лог:")
+log_label.pack(anchor=tk.W)
+
+log_text = scrolledtext.ScrolledText(frame_bottom, wrap=tk.WORD, height=8)
+log_text.pack(fill=tk.BOTH, expand=True)
 
 # Инициализация базы данных
 initialize_db()
 
-# Запуск основного цикла
+# Запуск интерфейса
 window.mainloop()
