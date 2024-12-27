@@ -10,6 +10,7 @@ import pandas as pd
 import asyncio
 import time
 import logging
+from rapidfuzz import fuzz  # Для сравнения текста
 
 # Настройка логирования
 logging.basicConfig(
@@ -19,7 +20,7 @@ logging.basicConfig(
 )
 
 # Настройка Tesseract
-pytesseract.pytesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # Настройка EasyOCR
 reader = easyocr.Reader(['en', 'ru'], gpu=False)
@@ -124,6 +125,31 @@ async def process_image_with_easyocr(image_path):
         return "Ошибка EasyOCR."
 
 
+def find_similar_text(input_text):
+    """Ищет наиболее похожий текст в базе данных."""
+    conn = sqlite3.connect("microchips.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, description FROM microchips")
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Ищем наиболее похожий текст
+    best_match = None
+    highest_similarity = 0
+    for name, description in rows:
+        similarity = fuzz.ratio(input_text, description)  # Используем RapidFuzz для сравнения текста
+        if similarity > highest_similarity:
+            highest_similarity = similarity
+            best_match = (name, description)
+
+    if best_match:
+        log_action(f"Найден наиболее похожий текст (похожесть: {highest_similarity:.2f}%): {best_match[0]}")
+        return best_match[0], best_match[1], highest_similarity  # Возвращаем name, description и похожесть
+    else:
+        log_action("Совпадений не найдено.")
+        return None, None, 0
+
+
 async def process_image_async():
     """Основная функция обработки изображения с выбором OCR."""
     file_path = file_path_entry.get()
@@ -147,9 +173,16 @@ async def process_image_async():
         else:
             text = "Неизвестный метод OCR."
 
+        # Поиск наиболее похожего текста в базе данных
+        name, similar_text, similarity = find_similar_text(text)
+
         # Вывод результата
         output_text.delete(1.0, tk.END)
-        output_text.insert(tk.END, text)
+        output_text.insert(tk.END, f"Распознанный текст:\n{text}\n\n")
+        if name:
+            output_text.insert(tk.END, f"Наиболее похожая запись:\nНазвание микросхемы (name): {name}\nОписание (description): {similar_text}\nПохожесть: {similarity:.2f}%")
+        else:
+            output_text.insert(tk.END, "Совпадений в базе данных не найдено.")
 
     except Exception as e:
         log_error(f"Ошибка обработки изображения: {e}")
